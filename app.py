@@ -19,19 +19,19 @@ if uploaded_file is not None:
     try:
         d = epanet(tmp_path)
         
-        # --- 🛠️ TRIK HACKER (BYPASS ERROR) 🛠️ ---
-        # Paksa ubah semua pipa ke ukuran 250mm agar mesin EPANET tidak pingsan di awal
+        # 1. AMBIL DIAMETER ASLI DARI FILE (SEBELUM DIHACK)
         link_ids = d.getLinkNameID()
+        diams_asli = d.getLinkDiameter() 
+        
+        # 2. TRIK HACKER (Ubah ke 250mm sementara agar mesin dijamin jalan)
         for i in range(len(link_ids)):
             d.setLinkDiameter(i + 1, 250) 
-        # ------------------------------------------
-        
-        # Buka dan jalankan mesin hidrolika (Sekarang pasti berhasil!)
+            
+        # 3. Jalankan mesin hidrolika
         d.openHydraulicAnalysis()
         d.initializeHydraulicAnalysis(0)
         d.runHydraulicAnalysis()
         
-        diams = d.getLinkDiameter()
         vels = d.getLinkVelocity() 
         d.closeHydraulicAnalysis() 
         
@@ -44,42 +44,44 @@ if uploaded_file is not None:
         # Algoritma Pengecilan Pipa Otomatis
         for i in range(len(link_ids)):
             v = abs(vels[i]) 
-            D_awal = diams[i] # Sekarang semuanya 250mm
+            D_asli = diams_asli[i]   # Ini data asli dari Notepad++ (misal 40, 75, 200)
+            D_komputasi = 250        # Ini ukuran saat mesin jalan
             status_v = "OK"
-            D_baru = D_awal
+            D_baru = D_komputasi
             
-            # Karena pipanya dibesarkan, aliran pasti lambat, jadi kita perkecil
+            # Cari ukuran ideal berdasarkan kecepatan
             if v < 0.3 and v > 0.001: 
                 status_v = "Terlalu Lambat"
-                # Cari ukuran yang lebih kecil dari 250mm
-                kecil = [p for p in standar_pipa if p < D_awal]
+                kecil = [p for p in standar_pipa if p < D_komputasi]
                 if kecil:
-                    D_baru = max(kecil) # Turun 1 tingkat (misal ke 200mm)
-                    isu_diperbaiki += 1
+                    D_baru = max(kecil) 
                     
             elif v > 2.0: 
                 status_v = "Terlalu Cepat"
-                besar = [p for p in standar_pipa if p > D_awal]
+                besar = [p for p in standar_pipa if p > D_komputasi]
                 if besar:
                     D_baru = min(besar)
-                    isu_diperbaiki += 1
 
-            # Terapkan perubahan ke mesin
-            if D_baru != D_awal:
-                d.setLinkDiameter(i + 1, D_baru) 
+            # Hitung isu diperbaiki (jika hasil akhirnya beda dengan file asli teman Anda)
+            if D_baru != D_asli:
+                isu_diperbaiki += 1
+
+            # Terapkan perubahan FINAL ke mesin
+            d.setLinkDiameter(i + 1, D_baru) 
             
+            # Masukkan data ke tabel (Tampilkan D_asli)
             data_tabel.append({
                 "ID Pipa": link_ids[i],
-                "Diameter Awal (mm)": D_awal,
-                "Diameter Baru (mm)": D_baru,
-                "Kecepatan Akhir (m/s)": round(v, 2),
-                "Status": "Dioptimasi" if D_baru != D_awal else "OK"
+                "Diameter Asli (mm)": D_asli,
+                "Diameter Optimasi (mm)": D_baru,
+                "Kecepatan (m/s)": round(v, 2),
+                "Status": "Diubah Sistem" if D_baru != D_asli else "Tetap"
             })
 
         st.markdown("### Ringkasan Optimasi")
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Pipa Jaringan", len(link_ids))
-        col2.metric("Pipa Berhasil Dioptimasi", isu_diperbaiki)
+        col2.metric("Pipa yang Diubah Sistem", isu_diperbaiki)
         col3.metric("Status Mesin", "Berjalan Mulus ✅")
 
         st.markdown("### Detail Hasil Pipa")
@@ -87,13 +89,13 @@ if uploaded_file is not None:
         
         # Pewarnaan Tabel
         def warnai_status(val):
-            color = 'green' if val == 'OK' else 'blue'
+            color = 'green' if val == 'Tetap' else 'blue'
             return f'color: {color}'
         st.dataframe(df.style.map(warnai_status, subset=['Status']), use_container_width=True)
 
         st.markdown("### Unduh Hasil")
         new_inp_path = tmp_path.replace(".inp", "_optimized.inp")
-        d.saveInputFile(new_inp_path) # Simpan dengan pipa baru
+        d.saveInputFile(new_inp_path) 
         
         with open(new_inp_path, "rb") as file:
             st.download_button(
