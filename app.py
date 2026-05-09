@@ -1,5 +1,6 @@
 import streamlit as st
 from epyt import epanet
+import wntr
 import tempfile
 import os
 import pandas as pd
@@ -7,41 +8,36 @@ import pandas as pd
 # Konfigurasi Halaman
 st.set_page_config(page_title="EPANET Pro Toolkit", layout="wide")
 
-# --- MEMBUAT SIDEBAR UNTUK MENU NAVIGASI ---
 st.sidebar.title("EPANET Pro Toolkit 🛠️")
 st.sidebar.write("Pilih mode analisis:")
-# Membuat tombol radio (pilihan) di menu samping
 menu = st.sidebar.radio(
     "Navigasi Fitur:", 
-    ["🚀 Auto-Solver (Diameter Pipa)", "🩺 Analisis Tekanan (Pressure Node)"]
+    ["🚀 Auto-Solver (Engine: EPyT)", "🩺 Analisis Tekanan (Engine: WNTR)"]
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("Aplikasi ini dibuat dengan EPyT & Streamlit.")
+st.sidebar.info("Aplikasi ini ditenagai oleh multi-engine: EPyT dan WNTR.")
 
-# --- BAGIAN UTAMA WEBSITE ---
-st.title(menu) # Judul halaman akan berubah sesuai menu yang dipilih
+st.title(menu) 
 
 uploaded_file = st.file_uploader("Upload File .inp EPANET Anda di sini", type=['inp'])
 
 if uploaded_file is not None:
-    # 1. Simpan file sementara
     with tempfile.NamedTemporaryFile(delete=False, suffix=".inp") as tmp:
         tmp.write(uploaded_file.getvalue())
         tmp_path = tmp.name
 
     try:
         # ==========================================
-        # FITUR 1: AUTO-SOLVER DIAMETER PIPA
+        # FITUR 1: AUTO-SOLVER (MESIN: EPyT)
         # ==========================================
-        if menu == "🚀 Auto-Solver (Diameter Pipa)":
+        if menu == "🚀 Auto-Solver (Engine: EPyT)":
             st.write("Sistem akan menggunakan *Trik Pipa Raksasa* untuk mencegah Error, lalu mengoptimasi diameternya secara otomatis.")
             
             d = epanet(tmp_path)
             link_ids = d.getLinkNameID()
             diams_asli = d.getLinkDiameter() 
             
-            # Trik Hacker: Paksa ubah ke 600mm
             for i in range(len(link_ids)):
                 d.setLinkDiameter(i + 1, 600) 
                 
@@ -88,9 +84,9 @@ if uploaded_file is not None:
 
             st.markdown("### Ringkasan Optimasi Diameter")
             col1, col2, col3 = st.columns(3)
-            col1.metric("Total Pipa Jaringan", len(link_ids))
-            col2.metric("Pipa Disesuaikan Sistem", isu_diperbaiki)
-            col3.metric("Status Mesin", "Trik Raksasa Berhasil ✅")
+            col1.metric("Total Pipa", len(link_ids))
+            col2.metric("Dioptimasi", isu_diperbaiki)
+            col3.metric("Engine", "EPyT Berhasil ✅")
 
             df = pd.DataFrame(data_tabel)
             st.dataframe(df, use_container_width=True)
@@ -101,37 +97,35 @@ if uploaded_file is not None:
             with open(new_inp_path, "rb") as file:
                 st.download_button(label="Unduh File .INP (Sudah Diperbaiki)", data=file, file_name="Jaringan_Optimasi_Diameter.inp", mime="text/plain")
             
-            d.unload() # Tutup mesin
+            d.unload() 
 
         # ==========================================
-        # FITUR 2: ANALISIS TEKANAN (PRESSURE)
+        # FITUR 2: ANALISIS TEKANAN (MESIN: WNTR)
         # ==========================================
-        elif menu == "🩺 Analisis Tekanan (Pressure Node)":
-            st.write("Mendiagnosis kesehatan tekanan air di setiap persimpangan (Node) untuk mencari potensi kebocoran atau ledakan pipa.")
+        elif menu == "🩺 Analisis Tekanan (Engine: WNTR)":
+            st.write("Mendiagnosis kesehatan tekanan air menggunakan standar industri **WNTR** pada snapshot waktu awal (t=0).")
             
-            d = epanet(tmp_path)
-            d.openHydraulicAnalysis()
-            d.initializeHydraulicAnalysis(0)
-            d.runHydraulicAnalysis()
+            # 1. Muat jaringan ke dalam model WNTR
+            wn = wntr.network.WaterNetworkModel(tmp_path)
             
-            node_ids = d.getNodeNameID()
-            elevations = d.getNodeElevations()
-            pressures = d.getNodePressure()
-            d.closeHydraulicAnalysis() 
+            # 2. Nyalakan Simulator EPANET bawaan WNTR
+            sim = wntr.sim.EpanetSimulator(wn)
+            results = sim.run_sim()
+            
+            # 3. Ambil data tekanan persis di jam pertama (t=0) seperti aplikasi kating Anda
+            tekanan_t0 = results.node['pressure'].loc[0]
             
             data_tabel = []
             node_rendah = 0
             node_aman = 0
             node_tinggi = 0
 
-            for i in range(len(node_ids)):
-                p = pressures[i]
-                elev = elevations[i]
+            # 4. Filter super rapi: Hanya periksa Junction (Titik Simpang warga), abaikan Reservoir/Tank
+            for node_name in wn.junction_name_list:
+                node_obj = wn.get_node(node_name)
+                elev = node_obj.elevation
+                p = tekanan_t0[node_name]
                 
-                # Abaikan Reservoir/Tangki
-                if "Res" in node_ids[i] or elev == 0:
-                    continue
-                    
                 status_p = "Aman"
                 if p < 15:
                     status_p = "Terlalu Rendah"
@@ -143,17 +137,17 @@ if uploaded_file is not None:
                     node_aman += 1
 
                 data_tabel.append({
-                    "ID Node": node_ids[i],
+                    "ID Node": node_name,
                     "Elevasi Tanah (m)": round(elev, 2),
                     "Tekanan / Pressure (m)": round(p, 2),
                     "Status": status_p
                 })
 
-            st.markdown("### Ringkasan Kesehatan Node")
+            st.markdown("### Ringkasan Kesehatan Node (WNTR)")
             col1, col2, col3 = st.columns(3)
-            col1.metric("Node Tekanan Rendah (< 15m)", node_rendah)
-            col2.metric("Node Aman (15m - 80m)", node_aman)
-            col3.metric("Node Bahaya Meledak (> 80m)", node_tinggi)
+            col1.metric("Tekanan Rendah (< 15m)", node_rendah)
+            col2.metric("Aman (15m - 80m)", node_aman)
+            col3.metric("Bahaya Meledak (> 80m)", node_tinggi)
 
             df = pd.DataFrame(data_tabel)
             def warnai_status(val):
@@ -163,14 +157,12 @@ if uploaded_file is not None:
                 return f'color: {color}'
                 
             st.dataframe(df.style.map(warnai_status, subset=['Status']), use_container_width=True)
-            d.unload() # Tutup mesin
 
     except Exception as e:
         st.error(f"Gagal menjalankan analisis: {e}")
-        st.info("Pastikan jaringan tidak memiliki error fundamental (seperti Reservoir terlalu rendah).")
+        st.info("Pastikan file .inp Anda valid dan tidak mengalami error fatal gravitasi.")
         
     finally:
-        # Bersihkan memori dan hapus file sementara
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         if 'new_inp_path' in locals() and os.path.exists(new_inp_path):
