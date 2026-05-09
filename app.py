@@ -397,16 +397,11 @@ for node in wn.junction_name_list:
                         })
 
                     df2 = pd.DataFrame(compare)
-                    def warnai_status(val):
-                        if val == "Aman":
-                            return "color: limegreen; font-weight: bold;"
-                        else:
-                            return "color: red; font-weight: bold;"
 
-                    st.dataframe(
-                        df2.style.map(
-                            warnai_status,
-                            subset=["Status"]
+st.dataframe(
+    df2.style.map(
+        warnai_status,
+        subset=["Status"]
     ),
     use_container_width=True
 )
