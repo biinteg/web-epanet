@@ -205,12 +205,12 @@ if uploaded_file is not None:
                         st.info(f"Kombinasi ini berhasil membuat **{best_aman_count} Node** menjadi AMAN (Hijau).")
                         # ... sisa kode untuk menampilkan tabel banding dan download ...
                     
-                    # --- TAMPILKAN HASIL TERBAIK ---
-                    if best_pipe:
-                        st.success(f"✨ ALGORITMA SELESAI! Lokasi PRV Terbaik adalah di Pipa: **'{best_pipe}'**")
-                        st.info(f"Pemasangan PRV di '{best_pipe}' berhasil membuat **{best_aman_count} Node** menjadi AMAN (Hijau).")
+                   # --- TAMPILKAN HASIL TERBAIK (VERSI DOUBLE-PILOT) ---
+                    if best_pipes:
+                        st.success(f"✨ SOLUSI DITEMUKAN! Pasang dua PRV di Pipa: **{best_pipes[0]}** dan **{best_pipes[1]}**")
+                        st.info(f"Kombinasi ini berhasil membuat **{best_aman_count} Node** menjadi AMAN (Hijau).")
                         
-                        # Tabel Hasil
+                        # Tabel Hasil Perbandingan
                         data_banding = []
                         for node_name in wn.junction_name_list:
                             p_lama = tekanan_t0[node_name]
@@ -225,16 +225,21 @@ if uploaded_file is not None:
                             })
                         
                         df_banding = pd.DataFrame(data_banding)
+                        def warnai_status(val):
+                            if val == 'Aman': return 'color: green'
+                            elif val == 'Terlalu Rendah': return 'color: orange'
+                            else: return 'color: red'
+                            
                         st.dataframe(df_banding.style.map(warnai_status, subset=['Status Baru']), use_container_width=True)
 
-                        # Unduh File Terbaik
+                        # Unduh File Hasil Operasi Dua PRV
                         st.markdown("#### Unduh Jaringan Sempurna")
-                        new_inp_prv = tmp_path.replace(".inp", "_AutoPilot_PRV.inp")
+                        new_inp_prv = tmp_path.replace(".inp", "_DoublePRV.inp")
                         wntr.network.write_inpfile(best_wn, new_inp_prv)
                         with open(new_inp_prv, "rb") as file:
-                            st.download_button(label="Unduh File .INP (Sudah Ada PRV Terbaik)", data=file, file_name=f"Jaringan_PRV_di_{best_pipe}.inp", mime="text/plain")
+                            st.download_button(label="Unduh File .INP (Sudah Ada 2 PRV)", data=file, file_name=f"Jaringan_Dua_PRV.inp", mime="text/plain")
                     else:
-                        st.error("Gagal menemukan lokasi PRV yang cocok.")
+                        st.error("Gagal menemukan kombinasi PRV yang cocok.")
 
     except Exception as e:
         st.error(f"Gagal menjalankan analisis: {e}")
