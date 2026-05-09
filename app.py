@@ -4,10 +4,10 @@ import tempfile
 import os
 import pandas as pd
 
-st.set_page_config(page_title="EPANET Auto-Solver", layout="wide")
+st.set_page_config(page_title="EPANET Pressure Analyzer", layout="wide")
 
-st.title("Auto-Solver Jaringan Pipa (Engine: EPyT) 🚀")
-st.write("Sistem akan mereset pipa ke ukuran RAKSASA (600mm), lalu mengoptimasi diameternya.")
+st.title("Pemindai Tekanan Jaringan (Pressure Analyzer) 🩺")
+st.write("Sistem ini mendiagnosis kesehatan tekanan air di setiap Node (Titik) pada jaringan Anda.")
 
 uploaded_file = st.file_uploader("Upload File .inp EPANET", type=['inp'])
 
@@ -19,90 +19,79 @@ if uploaded_file is not None:
     try:
         d = epanet(tmp_path)
         
-        link_ids = d.getLinkNameID()
-        diams_asli = d.getLinkDiameter() 
-        
-        # --- TRIK HACKER LEVEL DEWA ---
-        # Paksa ubah ke pipa raksasa (600mm) agar aliran lancar seperti jalan tol
-        for i in range(len(link_ids)):
-            d.setLinkDiameter(i + 1, 600) 
-            
+        # --- JALANKAN MESIN HIDROLIKA ---
         d.openHydraulicAnalysis()
         d.initializeHydraulicAnalysis(0)
         d.runHydraulicAnalysis()
         
-        vels = d.getLinkVelocity() 
+        # --- AMBIL DATA NODE ---
+        node_ids = d.getNodeNameID()
+        elevations = d.getNodeElevations()
+        pressures = d.getNodePressure() # Ini data sakti yang kita cari!
+        
         d.closeHydraulicAnalysis() 
         
-        # --- DAFTAR PIPA DIPERBESAR (Hingga 800mm) ---
-        standar_pipa = [50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 800]
-        
-        isu_diperbaiki = 0
         data_tabel = []
+        node_rendah = 0
+        node_aman = 0
+        node_tinggi = 0
 
-        for i in range(len(link_ids)):
-            v = abs(vels[i]) 
-            D_asli = diams_asli[i]   
-            D_komputasi = 600        # Karena kita set 600 di awal
-            status_v = "OK"
-            D_baru = D_komputasi
+        # Kita hitung khusus untuk Node biasa (Junction), bukan Reservoir/Tank
+        # Reservoir biasanya ada di index terakhir, tapi kita filter pakai tipe node (jika perlu)
+        # Untuk amannya, kita analisis semua node dulu.
+        
+        for i in range(len(node_ids)):
+            p = pressures[i]
+            elev = elevations[i]
             
-            # Jika airnya santai (< 0.5 m/s) di dalam pipa raksasa, kita kecilkan pipanya!
-            if v < 0.5 and v > 0.001: 
-                status_v = "Diperkecil"
-                kecil = [p for p in standar_pipa if p < D_komputasi]
-                if kecil:
-                    # Kita cari ukuran yang pas agar tidak terlalu sempit
-                    D_baru = max(kecil) 
-                    
-            elif v > 2.0: 
-                status_v = "Diperbesar"
-                besar = [p for p in standar_pipa if p > D_komputasi]
-                if besar:
-                    D_baru = min(besar)
-
-            if D_baru != D_asli:
-                isu_diperbaiki += 1
-
-            d.setLinkDiameter(i + 1, D_baru) 
+            # Abaikan Reservoir (Biasanya tekanannya 0 di pembacaan EPyT jika bukan Junction)
+            if "Res" in node_ids[i] or elev == 0:
+                continue
+                
+            status_p = "Aman"
             
+            # Standar Tekanan SPAM Perumahan (15m - 80m)
+            if p < 15:
+                status_p = "Terlalu Rendah"
+                node_rendah += 1
+            elif p > 80:
+                status_p = "Bahaya (Terlalu Tinggi)"
+                node_tinggi += 1
+            else:
+                node_aman += 1
+
             data_tabel.append({
-                "ID Pipa": link_ids[i],
-                "Diameter Asli (mm)": D_asli,
-                "Diameter Optimasi (mm)": D_baru,
-                "Kecepatan (m/s)": round(v, 2),
-                "Status": status_v
+                "ID Node": node_ids[i],
+                "Elevasi Tanah (m)": round(elev, 2),
+                "Tekanan / Pressure (m)": round(p, 2),
+                "Status": status_p
             })
 
-        st.markdown("### Ringkasan Optimasi")
+        # --- TAMPILAN DASHBOARD ---
+        st.markdown("### Ringkasan Kesehatan Node")
         col1, col2, col3 = st.columns(3)
-        col1.metric("Total Pipa Jaringan", len(link_ids))
-        col2.metric("Pipa Disesuaikan Sistem", isu_diperbaiki)
-        col3.metric("Status Mesin", "Trik Pipa Raksasa Berhasil ✅")
+        col1.metric("Node Tekanan Rendah (< 15m)", node_rendah)
+        col2.metric("Node Aman (15m - 80m)", node_aman)
+        col3.metric("Node Bahaya Meledak (> 80m)", node_tinggi)
 
-        st.markdown("### Detail Hasil Pipa")
+        st.markdown("### Laporan Detail Tekanan")
         df = pd.DataFrame(data_tabel)
         
-        st.dataframe(df, use_container_width=True)
-
-        st.markdown("### Unduh Hasil")
-        new_inp_path = tmp_path.replace(".inp", "_optimized.inp")
-        d.saveInputFile(new_inp_path) 
-        
-        with open(new_inp_path, "rb") as file:
-            st.download_button(
-                label="Unduh File .INP (Sudah Diperbaiki)",
-                data=file,
-                file_name="Jaringan_Anti_Error_V2.inp",
-                mime="text/plain"
-            )
+        # Logika Pewarnaan Tabel
+        def warnai_status(val):
+            if val == 'Aman':
+                color = 'green'
+            elif val == 'Terlalu Rendah':
+                color = 'orange'
+            else:
+                color = 'red'
+            return f'color: {color}'
+            
+        st.dataframe(df.style.map(warnai_status, subset=['Status']), use_container_width=True)
 
     except Exception as e:
-        st.error(f"Gagal menjalankan solver: {e}")
-        st.info("Pesan: Pastikan Head Reservoir di file yang diupload minimal 350.")
+        st.error(f"Gagal menjalankan analisis: {e}")
         
     finally:
         d.unload()
         os.remove(tmp_path)
-        if 'new_inp_path' in locals() and os.path.exists(new_inp_path):
-            os.remove(new_inp_path)
