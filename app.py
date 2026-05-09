@@ -177,10 +177,21 @@ if uploaded_file is not None:
                     "EPyT ✅"
                 )
 
-                st.dataframe(
-                    df,
-                    use_container_width=True
-                )
+                def warnai_status_solver(val):
+                    if val == "Diperkecil":
+                        return "color: orange; font-weight: bold;"
+                    elif val == "Diperbesar":
+                        return "color: limegreen; font-weight: bold;"
+                    else:
+                        return "color: cyan; font-weight: bold;"
+
+st.dataframe(
+    df.style.map(
+        warnai_status_solver,
+        subset=["Status"]
+    ),
+    use_container_width=True
+)
 
                 # download file
                 new_inp = tmp_path.replace(
