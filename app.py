@@ -12,7 +12,7 @@ st.sidebar.title("EPANET Pro Toolkit 🛠️")
 st.sidebar.write("Pilih mode analisis:")
 menu = st.sidebar.radio(
     "Navigasi Fitur:", 
-    ["🚀 Auto-Solver (Engine: EPyT)", "🩺 Analisis Tekanan (Engine: WNTR)"]
+    ["🚀 Auto-Solver (Engine: EPyT)", "🩺 Analisis Tekanan & Auto-PRV (Engine: WNTR)"]
 )
 
 st.sidebar.markdown("---")
@@ -61,17 +61,13 @@ if uploaded_file is not None:
                 if v < 0.5 and v > 0.001: 
                     status_v = "Diperkecil"
                     kecil = [p for p in standar_pipa if p < D_komputasi]
-                    if kecil:
-                        D_baru = max(kecil) 
+                    if kecil: D_baru = max(kecil) 
                 elif v > 2.0: 
                     status_v = "Diperbesar"
                     besar = [p for p in standar_pipa if p > D_komputasi]
-                    if besar:
-                        D_baru = min(besar)
+                    if besar: D_baru = min(besar)
 
-                if D_baru != D_asli:
-                    isu_diperbaiki += 1
-
+                if D_baru != D_asli: isu_diperbaiki += 1
                 d.setLinkDiameter(i + 1, D_baru) 
                 
                 data_tabel.append({
@@ -96,19 +92,17 @@ if uploaded_file is not None:
             d.saveInputFile(new_inp_path) 
             with open(new_inp_path, "rb") as file:
                 st.download_button(label="Unduh File .INP (Sudah Diperbaiki)", data=file, file_name="Jaringan_Optimasi_Diameter.inp", mime="text/plain")
-            
             d.unload() 
 
         # ==========================================
-        # FITUR 2: ANALISIS TEKANAN (MESIN: WNTR)
+        # FITUR 2: ANALISIS TEKANAN & AUTO-PRV (MESIN: WNTR)
         # ==========================================
-        elif menu == "🩺 Analisis Tekanan (Engine: WNTR)":
-            st.write("Mendiagnosis kesehatan tekanan air menggunakan standar industri **WNTR** pada snapshot waktu awal (t=0).")
+        elif menu == "🩺 Analisis Tekanan & Auto-PRV (Engine: WNTR)":
+            st.write("Mendiagnosis kesehatan tekanan air dan menyediakan fitur pemasangan **Pressure Reducing Valve (PRV)** secara otomatis.")
             
-            # --- 🧹 AUTO-CLEANER ERROR 201 (HACK) ---
+            # Auto-Cleaner untuk menembus WNTR
             with open(tmp_path, 'r', encoding='utf-8', errors='ignore') as f:
                 lines = f.readlines()
-                
             with open(tmp_path, 'w', encoding='utf-8') as f:
                 skip_mode = False
                 for line in lines:
@@ -118,69 +112,98 @@ if uploaded_file is not None:
                         continue
                     if skip_mode and line.startswith('['):
                         skip_mode = False 
-                    
                     if "BACKFLOW ALLOWED" in line_upper:
                         continue 
-                        
                     if not skip_mode:
                         f.write(line)
-            # -----------------------------------------
 
             wn = wntr.network.WaterNetworkModel(tmp_path)
             sim = wntr.sim.EpanetSimulator(wn)
             results = sim.run_sim()
-            
             tekanan_t0 = results.node['pressure'].loc[0]
             
             data_tabel = []
-            node_rendah = 0
-            node_aman = 0
-            node_tinggi = 0
-
             for node_name in wn.junction_name_list:
-                node_obj = wn.get_node(node_name)
-                elev = node_obj.elevation
                 p = tekanan_t0[node_name]
-                
                 status_p = "Aman"
-                if p < 15:
-                    status_p = "Terlalu Rendah"
-                    node_rendah += 1
-                elif p > 80:
-                    status_p = "Bahaya (Terlalu Tinggi)"
-                    node_tinggi += 1
-                else:
-                    node_aman += 1
+                if p < 15: status_p = "Terlalu Rendah"
+                elif p > 80: status_p = "Bahaya (Terlalu Tinggi)"
 
                 data_tabel.append({
                     "ID Node": node_name,
-                    "Elevasi Tanah (m)": round(elev, 2),
-                    "Tekanan / Pressure (m)": round(p, 2),
+                    "Tekanan Awal (m)": round(p, 2),
                     "Status": status_p
                 })
 
-            st.markdown("### Ringkasan Kesehatan Node (WNTR)")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Tekanan Rendah (< 15m)", node_rendah)
-            col2.metric("Aman (15m - 80m)", node_aman)
-            col3.metric("Bahaya Meledak (> 80m)", node_tinggi)
-
+            st.markdown("### 1. Diagnosis Tekanan Awal")
             df = pd.DataFrame(data_tabel)
             def warnai_status(val):
                 if val == 'Aman': color = 'green'
                 elif val == 'Terlalu Rendah': color = 'orange'
                 else: color = 'red'
                 return f'color: {color}'
-                
             st.dataframe(df.style.map(warnai_status, subset=['Status']), use_container_width=True)
 
-    # 1 Blok Except & Finally Utama yang rapi dan sejajar
+            st.markdown("---")
+            st.markdown("### 2. 🛠️ Fix Pressure Otomatis (Auto-PRV)")
+            st.write("Potong pipa lama, ganti dengan PRV untuk menurunkan tekanan yang rawan meledak.")
+            
+            pipe_list = wn.pipe_name_list
+            default_idx = pipe_list.index('p7') if 'p7' in pipe_list else 0
+
+            col1, col2 = st.columns(2)
+            pipa_target = col1.selectbox("Pilih Pipa yang akan diganti PRV:", pipe_list, index=default_idx)
+            setting_prv = col2.number_input("Setting Target Tekanan (m):", min_value=10.0, max_value=100.0, value=50.0)
+
+            if st.button("Pasang PRV & Simulasi Ulang 🚀"):
+                # Operasi Bedah Jaringan
+                pipa_obj = wn.get_link(pipa_target)
+                n1 = pipa_obj.start_node_name
+                n2 = pipa_obj.end_node_name
+                d_pipa = pipa_obj.diameter
+
+                # Buang pipa lama, masukkan Valve PRV
+                wn.remove_link(pipa_target)
+                nama_prv = f"PRV_{pipa_target}"
+                wn.add_valve(nama_prv, n1, n2, diameter=d_pipa, valve_type='PRV', minor_loss=0.0, initial_setting=setting_prv)
+
+                st.success(f"✅ Operasi Berhasil! Pipa '{pipa_target}' telah diganti dengan {nama_prv} (Setting: {setting_prv} m).")
+
+                # Simulasi Ulang dengan Jaringan Baru
+                sim_baru = wntr.sim.EpanetSimulator(wn)
+                res_baru = sim_baru.run_sim()
+                tekanan_baru = res_baru.node['pressure'].loc[0]
+
+                # Bikin tabel perbandingan
+                data_banding = []
+                for node_name in wn.junction_name_list:
+                    p_lama = tekanan_t0[node_name]
+                    p_baru = tekanan_baru[node_name]
+                    status_baru = "Aman" if 15 <= p_baru <= 80 else ("Terlalu Rendah" if p_baru < 15 else "Bahaya (Terlalu Tinggi)")
+                    
+                    data_banding.append({
+                        "ID Node": node_name,
+                        "Tekanan Lama (m)": round(p_lama, 2),
+                        "Tekanan Baru (m)": round(p_baru, 2),
+                        "Status Baru": status_baru
+                    })
+                
+                st.markdown("#### Hasil Setelah Pemasangan PRV:")
+                df_banding = pd.DataFrame(data_banding)
+                st.dataframe(df_banding.style.map(warnai_status, subset=['Status Baru']), use_container_width=True)
+
+                # Fitur Download Jaringan yang sudah disisipkan PRV
+                st.markdown("#### Unduh Jaringan Baru")
+                new_inp_prv = tmp_path.replace(".inp", "_with_PRV.inp")
+                wntr.network.write_inpfile(wn, new_inp_prv)
+                with open(new_inp_prv, "rb") as file:
+                    st.download_button(label="Unduh File .INP (Sudah Ada PRV)", data=file, file_name=f"Jaringan_PRV_{pipa_target}.inp", mime="text/plain")
+
     except Exception as e:
         st.error(f"Gagal menjalankan analisis: {e}")
         st.info("Pastikan file .inp Anda valid dan tidak mengalami error fatal gravitasi.")
         
     finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        if 'new_inp_path' in locals() and os.path.exists(new_inp_path):
-            os.remove(new_inp_path)
+        if os.path.exists(tmp_path): os.remove(tmp_path)
+        if 'new_inp_path' in locals() and os.path.exists(new_inp_path): os.remove(new_inp_path)
+        if 'new_inp_prv' in locals() and os.path.exists(new_inp_prv): os.remove(new_inp_prv)
