@@ -8,6 +8,16 @@ import matplotlib.pyplot as plt
 from itertools import combinations
 import numpy as np
 
+import streamlit as st
+from epyt import epanet
+import wntr
+import tempfile
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+from itertools import combinations
+import numpy as np
+
 # =====================================================
 # FUNGSI WARNA
 # =====================================================
@@ -27,12 +37,12 @@ def warnai_status_solver(val):
         return "color: cyan; font-weight: bold;"
 
 def tampilkan_network(wn, tekanan_dict=None, judul="Visualisasi Jaringan"):
-    fig, ax = plt.subplots(figsize=(12, 8))
+    fig, ax = plt.subplots(figsize=(14, 10))
     
     # Plot network dasar
-    wntr.graphics.plot_network(wn, title=judul, ax=ax)
+    wntr.graphics.plot_network(wn, title=judul, ax=ax, node_size=20)
     
-    # Tambahkan scatter plot untuk node dengan warna berdasarkan tekanan
+    # Tambahkan scatter plot + label untuk node dengan warna berdasarkan tekanan
     if tekanan_dict is not None:
         node_xy = []
         node_colors = []
@@ -45,25 +55,43 @@ def tampilkan_network(wn, tekanan_dict=None, judul="Visualisasi Jaringan"):
             
             p = tekanan_dict[node_name]
             # Pengaman angka absurd
-            if p < -100:
+            if pd.isna(p) or p < -100:
                 p = 0
             
             if p < 15:
                 node_colors.append("red")
+                color_text = 'white'
             elif p > 80:
                 node_colors.append("orange")
+                color_text = 'black'
             else:
                 node_colors.append("limegreen")
+                color_text = 'black'
             
-            node_labels.append(f"{node_name}\n{p:.1f}m")
+            # Format label: nama node + tekanan (1 desimal)
+            label = f"{node_name}\n{p:.1f}"
+            node_labels.append((x, y, label, color_text))
         
         if node_xy:
             node_xy = np.array(node_xy)
+            # Scatter plot dengan ukuran lebih besar
             scatter = ax.scatter(node_xy[:, 0], node_xy[:, 1], 
-                                c=node_colors, s=120, zorder=5, 
-                                edgecolors='black', linewidth=1.5)
+                                c=node_colors, s=200, zorder=10, 
+                                edgecolors='black', linewidth=2,
+                                alpha=0.9)
+            
+            # TAMBAHAN: Label angka tekanan pada setiap node
+            for x, y, label, color_text in node_labels:
+                ax.annotate(label, (x, y), 
+                           xytext=(0, 15), textcoords='offset points',
+                           ha='center', va='bottom', fontsize=9,
+                           fontweight='bold', color=color_text,
+                           bbox=dict(boxstyle="round,pad=0.3", 
+                                   facecolor='white', alpha=0.8,
+                                   edgecolor=color_text, linewidth=1),
+                           zorder=11)
     
-    # Legend
+    # Colorbar atau legend
     if tekanan_dict is not None:
         from matplotlib.lines import Line2D
         legend_elements = [
@@ -74,11 +102,17 @@ def tampilkan_network(wn, tekanan_dict=None, judul="Visualisasi Jaringan"):
             Line2D([0], [0], marker='o', color='w', markerfacecolor='red',
                    markersize=12, label='Rendah (<15 m)', markeredgecolor='black')
         ]
-        ax.legend(handles=legend_elements, loc='upper right', frameon=True)
+        ax.legend(handles=legend_elements, loc='upper right', frameon=True, fontsize=10)
     
+    # Styling tambahan
+    ax.set_xlabel("X (m)", fontsize=12, fontweight='bold')
+    ax.set_ylabel("Y (m)", fontsize=12, fontweight='bold')
+    ax.grid(True, alpha=0.3)
     plt.tight_layout()
     st.pyplot(fig)
     plt.close(fig)
+
+# [KODE LAINNYA TETAP SAMA - hanya copy paste bagian MAIN dari kode sebelumnya]
 
 # =====================================================
 # PAGE CONFIG
