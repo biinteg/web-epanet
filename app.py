@@ -106,7 +106,6 @@ if uploaded_file is not None:
             st.write("Mendiagnosis kesehatan tekanan air menggunakan standar industri **WNTR** pada snapshot waktu awal (t=0).")
             
             # --- 🧹 AUTO-CLEANER ERROR 201 (HACK) ---
-            # Membersihkan tag [LEAKAGE] dan BACKFLOW agar WNTR tidak crash
             with open(tmp_path, 'r', encoding='utf-8', errors='ignore') as f:
                 lines = f.readlines()
                 
@@ -118,68 +117,70 @@ if uploaded_file is not None:
                         skip_mode = True
                         continue
                     if skip_mode and line.startswith('['):
-                        skip_mode = False # Selesai melewati blok LEAKAGE
+                        skip_mode = False 
                     
                     if "BACKFLOW ALLOWED" in line_upper:
-                        continue # Buang baris ini
+                        continue 
                         
                     if not skip_mode:
                         f.write(line)
             # -----------------------------------------
 
-            try:
-                # 1. Muat jaringan bersih ke dalam model WNTR
-                wn = wntr.network.WaterNetworkModel(tmp_path)
+            wn = wntr.network.WaterNetworkModel(tmp_path)
+            sim = wntr.sim.EpanetSimulator(wn)
+            results = sim.run_sim()
+            
+            tekanan_t0 = results.node['pressure'].loc[0]
+            
+            data_tabel = []
+            node_rendah = 0
+            node_aman = 0
+            node_tinggi = 0
+
+            for node_name in wn.junction_name_list:
+                node_obj = wn.get_node(node_name)
+                elev = node_obj.elevation
+                p = tekanan_t0[node_name]
                 
-                # 2. Nyalakan Simulator EPANET bawaan WNTR
-                sim = wntr.sim.EpanetSimulator(wn)
-                results = sim.run_sim()
+                status_p = "Aman"
+                if p < 15:
+                    status_p = "Terlalu Rendah"
+                    node_rendah += 1
+                elif p > 80:
+                    status_p = "Bahaya (Terlalu Tinggi)"
+                    node_tinggi += 1
+                else:
+                    node_aman += 1
+
+                data_tabel.append({
+                    "ID Node": node_name,
+                    "Elevasi Tanah (m)": round(elev, 2),
+                    "Tekanan / Pressure (m)": round(p, 2),
+                    "Status": status_p
+                })
+
+            st.markdown("### Ringkasan Kesehatan Node (WNTR)")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Tekanan Rendah (< 15m)", node_rendah)
+            col2.metric("Aman (15m - 80m)", node_aman)
+            col3.metric("Bahaya Meledak (> 80m)", node_tinggi)
+
+            df = pd.DataFrame(data_tabel)
+            def warnai_status(val):
+                if val == 'Aman': color = 'green'
+                elif val == 'Terlalu Rendah': color = 'orange'
+                else: color = 'red'
+                return f'color: {color}'
                 
-                # 3. Ambil data tekanan persis di jam pertama (t=0)
-                tekanan_t0 = results.node['pressure'].loc[0]
-                
-                data_tabel = []
-                node_rendah = 0
-                node_aman = 0
-                node_tinggi = 0
+            st.dataframe(df.style.map(warnai_status, subset=['Status']), use_container_width=True)
 
-                # 4. Filter super rapi: Hanya periksa Junction (Titik Simpang warga)
-                for node_name in wn.junction_name_list:
-                    node_obj = wn.get_node(node_name)
-                    elev = node_obj.elevation
-                    p = tekanan_t0[node_name]
-                    
-                    status_p = "Aman"
-                    if p < 15:
-                        status_p = "Terlalu Rendah"
-                        node_rendah += 1
-                    elif p > 80:
-                        status_p = "Bahaya (Terlalu Tinggi)"
-                        node_tinggi += 1
-                    else:
-                        node_aman += 1
-
-                    data_tabel.append({
-                        "ID Node": node_name,
-                        "Elevasi Tanah (m)": round(elev, 2),
-                        "Tekanan / Pressure (m)": round(p, 2),
-                        "Status": status_p
-                    })
-
-                st.markdown("### Ringkasan Kesehatan Node (WNTR)")
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Tekanan Rendah (< 15m)", node_rendah)
-                col2.metric("Aman (15m - 80m)", node_aman)
-                col3.metric("Bahaya Meledak (> 80m)", node_tinggi)
-
-                df = pd.DataFrame(data_tabel)
-                def warnai_status(val):
-                    if val == 'Aman': color = 'green'
-                    elif val == 'Terlalu Rendah': color = 'orange'
-                    else: color = 'red'
-                    return f'color: {color}'
-                    
-                st.dataframe(df.style.map(warnai_status, subset=['Status']), use_container_width=True)
-
-            except Exception as e:
-                st.error(f"Gagal menjalankan analisis WNTR: {e}")
+    # 1 Blok Except & Finally Utama yang rapi dan sejajar
+    except Exception as e:
+        st.error(f"Gagal menjalankan analisis: {e}")
+        st.info("Pastikan file .inp Anda valid dan tidak mengalami error fatal gravitasi.")
+        
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        if 'new_inp_path' in locals() and os.path.exists(new_inp_path):
+            os.remove(new_inp_path)
