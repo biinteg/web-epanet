@@ -232,22 +232,21 @@ if uploaded_file is not None:
            for node in wn.junction_name_list:
                old_p = tekanan_awal[node]
                new_p = best_result[node]
-            # Pengaman angka minus tidak logis
-    p_tampilan = new_p if new_p > -100 else 0
+               p_tampilan = new_p if new_p > -100 else 0
+               if p_tampilan < 15:
+                   status = "Terlalu Rendah"
+               elif p_tampilan > 80:
+                   status = "Bahaya (Terlalu Tinggi)"
+               else:
+                   status = "Aman"
 
-    if p_tampilan < 15:
-        status = "Terlalu Rendah"
-    elif p_tampilan > 80:
-        status = "Bahaya (Terlalu Tinggi)"
-    else:
-        status = "Aman"
-
-    compare.append({
+        compare.append({
         "Node": node,
         "Tekanan Lama": round(old_p, 2),
         "Tekanan Baru": round(p_tampilan, 2),
         "Status": status
     })
+        
             df = pd.DataFrame(data)
 
             st.markdown("### Diagnosis Tekanan")
