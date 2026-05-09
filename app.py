@@ -6,6 +6,12 @@ import os
 import pandas as pd
 from itertools import combinations
 
+def warnai_status(val):
+    if val == "Aman":
+        return "color: limegreen; font-weight: bold;"
+    else:
+        return "color: red; font-weight: bold;"
+        
 # =====================================================
 # PAGE CONFIG
 # =====================================================
@@ -396,9 +402,9 @@ if uploaded_file is not None:
                         df2.style.map(
                             warnai_status,
                             subset=["Status"]
-                        ),
-                        use_container_width=True
-                    )
+    ),
+    use_container_width=True
+)
                     
                     # save new network
                     new_inp = tmp_path.replace(
