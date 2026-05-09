@@ -386,21 +386,20 @@ if uploaded_file is not None:
                         })
 
                     df2 = pd.DataFrame(compare)
+                    def warnai_status(val):
+                        if val == "Aman":
+                            return "color: limegreen; font-weight: bold;"
+                        else:
+                            return "color: red; font-weight: bold;"
 
-def warnai_status(val):
-    if val == "Aman":
-        return "color: limegreen; font-weight: bold;"
-    else:
-        return "color: red; font-weight: bold;"
-
-st.dataframe(
-    df2.style.map(
-        warnai_status,
-        subset=["Status"]
-    ),
-    use_container_width=True
-)
-
+                    st.dataframe(
+                        df2.style.map(
+                            warnai_status,
+                            subset=["Status"]
+                        ),
+                        use_container_width=True
+                    )
+                    
                     # save new network
                     new_inp = tmp_path.replace(
                         ".inp",
