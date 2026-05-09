@@ -151,51 +151,60 @@ if uploaded_file is not None:
             
             setting_prv_auto = st.number_input("Setting Target Tekanan PRV (m):", min_value=10.0, max_value=100.0, value=50.0)
 
-            if st.button("Jalankan Auto-Pilot PRV 🚀"):
-                with st.spinner('Memindai seluruh probabilitas pipa... Komputer sedang bekerja keras!'):
-                    best_pipe = None
+            if st.button("Jalankan Double-Pilot PRV (Full Safe Mode) 🚀"):
+                with st.spinner('Menganalisis ribuan kombinasi pasangan pipa... Mohon tunggu!'):
+                    best_pipes = None
                     best_aman_count = -1
                     best_tekanan = None
                     best_wn = None
                     
-                    # Looping Brutal: Uji coba PRV di semua pipa yang ada!
-                    for test_pipe in wn.pipe_name_list:
-                        try:
-                            # 1. Reload file bersih untuk setiap percobaan
-                            wn_test = wntr.network.WaterNetworkModel(tmp_path)
+                    all_pipes = wn.pipe_name_list
+                    # Kita batasi pencarian agar tidak terlalu berat (looping di dalam looping)
+                    for i in range(len(all_pipes)):
+                        for j in range(i + 1, len(all_pipes)):
+                            p1_name = all_pipes[i]
+                            p2_name = all_pipes[j]
                             
-                            # 2. Ambil data pipa target
-                            pipa_obj = wn_test.get_link(test_pipe)
-                            n1 = pipa_obj.start_node_name
-                            n2 = pipa_obj.end_node_name
-                            d_pipa = pipa_obj.diameter
-                            
-                            # 3. Operasi Bedah (Ganti dengan PRV)
-                            wn_test.remove_link(test_pipe)
-                            wn_test.add_valve(f"PRV_{test_pipe}", n1, n2, diameter=d_pipa, valve_type='PRV', minor_loss=0.0, initial_setting=setting_prv_auto)
-                            
-                            # 4. Jalankan Simulasi
-                            sim_test = wntr.sim.EpanetSimulator(wn_test)
-                            res_test = sim_test.run_sim()
-                            tekanan_test = res_test.node['pressure'].loc[0]
-                            
-                            # 5. Hitung Skor (Berapa Node yang jadi Aman?)
-                            aman_count = 0
-                            for node_name in wn_test.junction_name_list:
-                                p = tekanan_test[node_name]
-                                if 15 <= p <= 80:
-                                    aman_count += 1
+                            try:
+                                wn_test = wntr.network.WaterNetworkModel(tmp_path)
+                                
+                                # Pasang PRV ke-1
+                                pipe1 = wn_test.get_link(p1_name)
+                                wn_test.remove_link(p1_name)
+                                wn_test.add_valve(f"PRV1_{p1_name}", pipe1.start_node_name, pipe1.end_node_name, 
+                                                diameter=pipe1.diameter, valve_type='PRV', initial_setting=setting_prv_auto)
+                                
+                                # Pasang PRV ke-2
+                                pipe2 = wn_test.get_link(p2_name)
+                                wn_test.remove_link(p2_name)
+                                wn_test.add_valve(f"PRV2_{p2_name}", pipe2.start_node_name, pipe2.end_node_name, 
+                                                diameter=pipe2.diameter, valve_type='PRV', initial_setting=setting_prv_auto)
+                                
+                                sim_test = wntr.sim.EpanetSimulator(wn_test)
+                                res_test = sim_test.run_sim()
+                                tekanan_test = res_test.node['pressure'].loc[0]
+                                
+                                aman_count = sum(1 for n in wn_test.junction_name_list if 15 <= tekanan_test[n] <= 80)
                                     
-                            # 6. Simpan jika ini adalah skor tertinggi!
-                            if aman_count > best_aman_count:
-                                best_aman_count = aman_count
-                                best_pipe = test_pipe
-                                best_tekanan = tekanan_test
-                                best_wn = wn_test
-                        except Exception:
-                            # Jika simulasi gagal di pipa ini, lewati.
-                            continue
+                                if aman_count > best_aman_count:
+                                    best_aman_count = aman_count
+                                    best_pipes = (p1_name, p2_name)
+                                    best_tekanan = tekanan_test
+                                    best_wn = wn_test
+                                    
+                                    # Jika sudah 100% aman (10 node aman), langsung stop pencarian
+                                    if aman_count >= len(wn_test.junction_name_list):
+                                        break
+                            except:
+                                continue
+                        if best_aman_count >= len(wn.junction_name_list):
+                            break
 
+                    if best_pipes:
+                        st.success(f"✨ SOLUSI DITEMUKAN! Pasang dua PRV di Pipa: **{best_pipes[0]}** dan **{best_pipes[1]}**")
+                        st.info(f"Kombinasi ini berhasil membuat **{best_aman_count} Node** menjadi AMAN (Hijau).")
+                        # ... sisa kode untuk menampilkan tabel banding dan download ...
+                    
                     # --- TAMPILKAN HASIL TERBAIK ---
                     if best_pipe:
                         st.success(f"✨ ALGORITMA SELESAI! Lokasi PRV Terbaik adalah di Pipa: **'{best_pipe}'**")
