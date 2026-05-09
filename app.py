@@ -6,12 +6,17 @@ import os
 import pandas as pd
 from itertools import combinations
 
+
+# =====================================================
+# FUNGSI WARNA STATUS
+# =====================================================
 def warnai_status(val):
     if val == "Aman":
         return "color: limegreen; font-weight: bold;"
     else:
         return "color: red; font-weight: bold;"
-        
+
+
 # =====================================================
 # PAGE CONFIG
 # =====================================================
@@ -41,6 +46,9 @@ uploaded_file = st.file_uploader(
     type=["inp"]
 )
 
+# =====================================================
+# JIKA FILE DIUPLOAD
+# =====================================================
 if uploaded_file is not None:
 
     with tempfile.NamedTemporaryFile(
@@ -52,9 +60,9 @@ if uploaded_file is not None:
 
     try:
 
-        # =====================================================
-        # FEATURE 1: AUTO SOLVER
-        # =====================================================
+        # =================================================
+        # FEATURE 1: AUTO SOLVER EPYT
+        # =================================================
         if menu == "🚀 Auto-Solver (Engine: EPyT)":
 
             st.write(
@@ -68,92 +76,113 @@ if uploaded_file is not None:
                 d = epanet(tmp_path)
 
                 link_ids = d.getLinkNameID()
-                diams_asli = d.getLinkDiameter()
+                diameter_awal = d.getLinkDiameter()
 
                 standar_pipa = [
-                    50, 75, 100, 150, 200,
-                    250, 300, 400, 500, 600, 800
+                    50, 75, 100, 150,
+                    200, 250, 300,
+                    400, 500, 600, 800
                 ]
 
-                # Iterative optimization
-                for iteration in range(5):
+                # iterasi optimasi
+                for _ in range(5):
 
                     d.openHydraulicAnalysis()
                     d.initializeHydraulicAnalysis(0)
                     d.runHydraulicAnalysis()
 
-                    velocities = d.getLinkVelocity()
+                    velocity = d.getLinkVelocity()
 
                     d.closeHydraulicAnalysis()
 
                     for i in range(len(link_ids)):
-                        v = abs(velocities[i])
-                        current_d = d.getLinkDiameter(i + 1)
+                        v = abs(velocity[i])
+                        d_now = d.getLinkDiameter(i + 1)
 
-                        new_d = current_d
+                        d_new = d_now
 
-                        if v < 0.5 and v > 0.001:
-                            smaller = [
+                        if 0.001 < v < 0.5:
+                            kandidat = [
                                 x for x in standar_pipa
-                                if x < current_d
+                                if x < d_now
                             ]
-                            if smaller:
-                                new_d = max(smaller)
+                            if kandidat:
+                                d_new = max(kandidat)
 
                         elif v > 2.0:
-                            larger = [
+                            kandidat = [
                                 x for x in standar_pipa
-                                if x > current_d
+                                if x > d_now
                             ]
-                            if larger:
-                                new_d = min(larger)
+                            if kandidat:
+                                d_new = min(kandidat)
 
-                        d.setLinkDiameter(i + 1, new_d)
+                        d.setLinkDiameter(
+                            i + 1,
+                            d_new
+                        )
 
-                # Final run
+                # run final
                 d.openHydraulicAnalysis()
                 d.initializeHydraulicAnalysis(0)
                 d.runHydraulicAnalysis()
-                final_vel = d.getLinkVelocity()
+                final_velocity = d.getLinkVelocity()
                 d.closeHydraulicAnalysis()
 
-                data = []
-                changed = 0
+                hasil = []
+                berubah = 0
 
                 for i in range(len(link_ids)):
-                    original = diams_asli[i]
-                    optimized = d.getLinkDiameter(i + 1)
+                    awal = diameter_awal[i]
+                    akhir = d.getLinkDiameter(i + 1)
 
-                    if optimized > original:
+                    if akhir > awal:
                         status = "Diperbesar"
-                    elif optimized < original:
+                    elif akhir < awal:
                         status = "Diperkecil"
                     else:
                         status = "Tetap"
 
-                    if optimized != original:
-                        changed += 1
+                    if awal != akhir:
+                        berubah += 1
 
-                    data.append({
+                    hasil.append({
                         "ID Pipa": link_ids[i],
-                        "Diameter Asli (mm)": original,
-                        "Diameter Baru (mm)": optimized,
-                        "Velocity (m/s)": round(abs(final_vel[i]), 3),
+                        "Diameter Awal": awal,
+                        "Diameter Baru": akhir,
+                        "Velocity": round(
+                            abs(final_velocity[i]),
+                            3
+                        ),
                         "Status": status
                     })
 
-                st.markdown("### Ringkasan")
+                df = pd.DataFrame(hasil)
 
+                st.markdown("### Ringkasan")
                 c1, c2, c3 = st.columns(3)
 
-                c1.metric("Total Pipa", len(link_ids))
-                c2.metric("Diubah", changed)
-                c3.metric("Engine", "EPyT ✅")
+                c1.metric(
+                    "Total Pipa",
+                    len(link_ids)
+                )
 
-                df = pd.DataFrame(data)
-                st.dataframe(df, use_container_width=True)
+                c2.metric(
+                    "Diubah",
+                    berubah
+                )
 
-                # Save optimized inp
+                c3.metric(
+                    "Engine",
+                    "EPyT ✅"
+                )
+
+                st.dataframe(
+                    df,
+                    use_container_width=True
+                )
+
+                # download file
                 new_inp = tmp_path.replace(
                     ".inp",
                     "_optimized.inp"
@@ -173,14 +202,14 @@ if uploaded_file is not None:
                 if d:
                     d.unload()
 
-        # =====================================================
-        # FEATURE 2: PRESSURE + AUTO PRV
-        # =====================================================
+        # =================================================
+        # FEATURE 2: WNTR PRV
+        # =================================================
         elif menu == "🩺 Analisis Tekanan & Auto-PRV (Engine: WNTR)":
 
             st.write(
                 "Analisis tekanan dan pencarian "
-                "lokasi terbaik 3 PRV."
+                "kombinasi terbaik Triple PRV."
             )
 
             # -----------------------------------------
@@ -217,43 +246,56 @@ if uploaded_file is not None:
                     if not skip:
                         f.write(line)
 
-            wn = wntr.network.WaterNetworkModel(tmp_path)
+            wn = wntr.network.WaterNetworkModel(
+                tmp_path
+            )
 
-            sim = wntr.sim.EpanetSimulator(wn)
+            sim = wntr.sim.EpanetSimulator(
+                wn
+            )
+
             results = sim.run_sim()
 
-            tekanan_awal = results.node["pressure"].loc[0]
+            tekanan_awal = results.node[
+                "pressure"
+            ].loc[0]
 
             # -----------------------------------------
-            # INITIAL PRESSURE TABLE
+            # DIAGNOSIS AWAL
             # -----------------------------------------
-            data = []
+            data_awal = []
 
-for node in wn.junction_name_list:
-    old_p = tekanan_awal[node]
-    new_p = best_result[node]
+            for node in wn.junction_name_list:
+                p = tekanan_awal[node]
 
-    # Pengaman angka minus absurd
-    p_tampilan = new_p if new_p > -100 else 0
+                if p < 15:
+                    status = "Terlalu Rendah"
+                elif p > 80:
+                    status = "Bahaya (Terlalu Tinggi)"
+                else:
+                    status = "Aman"
 
-    if p_tampilan < 15:
-        status = "Terlalu Rendah"
-    elif p_tampilan > 80:
-        status = "Bahaya (Terlalu Tinggi)"
-    else:
-        status = "Aman"
+                data_awal.append({
+                    "Node": node,
+                    "Tekanan": round(p, 2),
+                    "Status": status
+                })
 
-    compare.append({
-        "Node": node,
-        "Tekanan Lama": round(old_p, 2),
-        "Tekanan Baru": round(p_tampilan, 2),
-        "Status": status
-    })
-        
-            df = pd.DataFrame(data)
+            df_awal = pd.DataFrame(
+                data_awal
+            )
 
-            st.markdown("### Diagnosis Tekanan")
-            st.dataframe(df, use_container_width=True)
+            st.markdown(
+                "### Diagnosis Tekanan Awal"
+            )
+
+            st.dataframe(
+                df_awal.style.map(
+                    warnai_status,
+                    subset=["Status"]
+                ),
+                use_container_width=True
+            )
 
             # -----------------------------------------
             # PRV SEARCH
@@ -267,18 +309,23 @@ for node in wn.junction_name_list:
                 value=50.0
             )
 
-            if st.button("Cari Kombinasi Triple PRV 🚀"):
+            if st.button(
+                "Cari Kombinasi Triple PRV 🚀"
+            ):
 
-                candidate_pipes = []
+                kandidat_pipa = []
 
                 for p in wn.pipe_name_list:
                     pipe = wn.get_link(p)
 
                     if pipe.diameter > 0.15:
-                        candidate_pipes.append(p)
+                        kandidat_pipa.append(p)
 
                 combos = list(
-                    combinations(candidate_pipes, 3)
+                    combinations(
+                        kandidat_pipa,
+                        3
+                    )
                 )
 
                 total = len(combos)
@@ -333,6 +380,13 @@ for node in wn.junction_name_list:
                                 "pressure"
                             ].loc[0]
 
+                            # skip tekanan absurd
+                            if any(
+                                tekanan[n] < -100
+                                for n in wn_test.junction_name_list
+                            ):
+                                continue
+
                             aman = sum(
                                 1
                                 for n in wn_test.junction_name_list
@@ -345,16 +399,11 @@ for node in wn.junction_name_list:
                                 best_result = tekanan
                                 best_network = wn_test
 
-                            if aman == len(
-                                wn_test.junction_name_list
-                            ):
-                                break
-
                         except Exception:
                             continue
 
                 # -------------------------------------
-                # SHOW RESULT
+                # TAMPILKAN HASIL
                 # -------------------------------------
                 if best_combo:
 
@@ -367,8 +416,7 @@ for node in wn.junction_name_list:
 
                     st.info(
                         f"Node aman: "
-                        f"{best_score} "
-                        f"dari "
+                        f"{best_score} dari "
                         f"{len(wn.junction_name_list)}"
                     )
 
@@ -378,10 +426,17 @@ for node in wn.junction_name_list:
                         old_p = tekanan_awal[node]
                         new_p = best_result[node]
 
-                        if new_p < 15:
+                        # pengaman tampilan
+                        p_tampil = (
+                            new_p
+                            if new_p > -100
+                            else 0
+                        )
+
+                        if p_tampil < 15:
                             status = "Terlalu Rendah"
-                        elif new_p > 80:
-                            status = "Terlalu Tinggi"
+                        elif p_tampil > 80:
+                            status = "Bahaya (Terlalu Tinggi)"
                         else:
                             status = "Aman"
 
@@ -391,22 +446,24 @@ for node in wn.junction_name_list:
                                 old_p, 2
                             ),
                             "Tekanan Baru": round(
-                                new_p, 2
+                                p_tampil, 2
                             ),
                             "Status": status
                         })
 
-                    df2 = pd.DataFrame(compare)
+                    df2 = pd.DataFrame(
+                        compare
+                    )
 
-st.dataframe(
-    df2.style.map(
-        warnai_status,
-        subset=["Status"]
-    ),
-    use_container_width=True
-)
-                    
-                    # save new network
+                    st.dataframe(
+                        df2.style.map(
+                            warnai_status,
+                            subset=["Status"]
+                        ),
+                        use_container_width=True
+                    )
+
+                    # save file
                     new_inp = tmp_path.replace(
                         ".inp",
                         "_TriplePRV.inp"
@@ -430,7 +487,8 @@ st.dataframe(
 
                 else:
                     st.error(
-                        "Tidak ditemukan kombinasi cocok."
+                        "Tidak ditemukan "
+                        "kombinasi PRV yang valid."
                     )
 
     except Exception as e:
