@@ -1,4 +1,6 @@
-epyt
 streamlit
-pandas
+epyt
 wntr
+pandas
+matplotlib
+numpy
