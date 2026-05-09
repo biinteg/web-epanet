@@ -4,241 +4,426 @@ import wntr
 import tempfile
 import os
 import pandas as pd
+from itertools import combinations
 
-# Konfigurasi Halaman
-st.set_page_config(page_title="EPANET Pro Toolkit", layout="wide")
+# =====================================================
+# PAGE CONFIG
+# =====================================================
+st.set_page_config(
+    page_title="EPANET Pro Toolkit",
+    layout="wide"
+)
 
 st.sidebar.title("EPANET Pro Toolkit 🛠️")
 st.sidebar.write("Pilih mode analisis:")
+
 menu = st.sidebar.radio(
-    "Navigasi Fitur:", 
-    ["🚀 Auto-Solver (Engine: EPyT)", "🩺 Analisis Tekanan & Auto-PRV (Engine: WNTR)"]
+    "Navigasi:",
+    [
+        "🚀 Auto-Solver (Engine: EPyT)",
+        "🩺 Analisis Tekanan & Auto-PRV (Engine: WNTR)"
+    ]
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("Aplikasi ini ditenagai oleh multi-engine: EPyT dan WNTR.")
+st.sidebar.info("Multi-engine: EPyT + WNTR")
 
-st.title(menu) 
+st.title(menu)
 
-uploaded_file = st.file_uploader("Upload File .inp EPANET Anda di sini", type=['inp'])
+uploaded_file = st.file_uploader(
+    "Upload file .inp EPANET",
+    type=["inp"]
+)
 
 if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".inp") as tmp:
+
+    with tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".inp"
+    ) as tmp:
         tmp.write(uploaded_file.getvalue())
         tmp_path = tmp.name
 
     try:
-        # ==========================================
-        # FITUR 1: AUTO-SOLVER (MESIN: EPyT)
-        # ==========================================
+
+        # =====================================================
+        # FEATURE 1: AUTO SOLVER
+        # =====================================================
         if menu == "🚀 Auto-Solver (Engine: EPyT)":
-            st.write("Sistem akan menggunakan *Trik Pipa Raksasa* untuk mencegah Error, lalu mengoptimasi diameternya secara otomatis.")
-            
-            d = epanet(tmp_path)
-            link_ids = d.getLinkNameID()
-            diams_asli = d.getLinkDiameter() 
-            
-            for i in range(len(link_ids)):
-                d.setLinkDiameter(i + 1, 600) 
-                
-            d.openHydraulicAnalysis()
-            d.initializeHydraulicAnalysis(0)
-            d.runHydraulicAnalysis()
-            vels = d.getLinkVelocity() 
-            d.closeHydraulicAnalysis() 
-            
-            standar_pipa = [50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 800]
-            isu_diperbaiki = 0
-            data_tabel = []
 
-            for i in range(len(link_ids)):
-                v = abs(vels[i]) 
-                D_asli = diams_asli[i]   
-                D_komputasi = 600
-                status_v = "OK"
-                D_baru = D_komputasi
-                
-                if v < 0.5 and v > 0.001: 
-                    status_v = "Diperkecil"
-                    kecil = [p for p in standar_pipa if p < D_komputasi]
-                    if kecil: D_baru = max(kecil) 
-                elif v > 2.0: 
-                    status_v = "Diperbesar"
-                    besar = [p for p in standar_pipa if p > D_komputasi]
-                    if besar: D_baru = min(besar)
+            st.write(
+                "Optimasi diameter otomatis berdasarkan "
+                "kecepatan aliran (target 0.5–2.0 m/s)"
+            )
 
-                if D_baru != D_asli: isu_diperbaiki += 1
-                d.setLinkDiameter(i + 1, D_baru) 
-                
-                data_tabel.append({
-                    "ID Pipa": link_ids[i],
-                    "Diameter Asli (mm)": D_asli,
-                    "Diameter Optimasi (mm)": D_baru,
-                    "Kecepatan (m/s)": round(v, 2),
-                    "Status": status_v
-                })
+            d = None
 
-            st.markdown("### Ringkasan Optimasi Diameter")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Pipa", len(link_ids))
-            col2.metric("Dioptimasi", isu_diperbaiki)
-            col3.metric("Engine", "EPyT Berhasil ✅")
+            try:
+                d = epanet(tmp_path)
 
-            df = pd.DataFrame(data_tabel)
-            st.dataframe(df, use_container_width=True)
+                link_ids = d.getLinkNameID()
+                diams_asli = d.getLinkDiameter()
 
-            st.markdown("### Unduh Hasil Optimasi")
-            new_inp_path = tmp_path.replace(".inp", "_optimized.inp")
-            d.saveInputFile(new_inp_path) 
-            with open(new_inp_path, "rb") as file:
-                st.download_button(label="Unduh File .INP (Sudah Diperbaiki)", data=file, file_name="Jaringan_Optimasi_Diameter.inp", mime="text/plain")
-            d.unload() 
+                standar_pipa = [
+                    50, 75, 100, 150, 200,
+                    250, 300, 400, 500, 600, 800
+                ]
 
-        # ==========================================
-        # FITUR 2: ANALISIS TEKANAN & AUTO-PRV (MESIN: WNTR)
-        # ==========================================
+                # Iterative optimization
+                for iteration in range(5):
+
+                    d.openHydraulicAnalysis()
+                    d.initializeHydraulicAnalysis(0)
+                    d.runHydraulicAnalysis()
+
+                    velocities = d.getLinkVelocity()
+
+                    d.closeHydraulicAnalysis()
+
+                    for i in range(len(link_ids)):
+                        v = abs(velocities[i])
+                        current_d = d.getLinkDiameter(i + 1)
+
+                        new_d = current_d
+
+                        if v < 0.5 and v > 0.001:
+                            smaller = [
+                                x for x in standar_pipa
+                                if x < current_d
+                            ]
+                            if smaller:
+                                new_d = max(smaller)
+
+                        elif v > 2.0:
+                            larger = [
+                                x for x in standar_pipa
+                                if x > current_d
+                            ]
+                            if larger:
+                                new_d = min(larger)
+
+                        d.setLinkDiameter(i + 1, new_d)
+
+                # Final run
+                d.openHydraulicAnalysis()
+                d.initializeHydraulicAnalysis(0)
+                d.runHydraulicAnalysis()
+                final_vel = d.getLinkVelocity()
+                d.closeHydraulicAnalysis()
+
+                data = []
+                changed = 0
+
+                for i in range(len(link_ids)):
+                    original = diams_asli[i]
+                    optimized = d.getLinkDiameter(i + 1)
+
+                    if optimized > original:
+                        status = "Diperbesar"
+                    elif optimized < original:
+                        status = "Diperkecil"
+                    else:
+                        status = "Tetap"
+
+                    if optimized != original:
+                        changed += 1
+
+                    data.append({
+                        "ID Pipa": link_ids[i],
+                        "Diameter Asli (mm)": original,
+                        "Diameter Baru (mm)": optimized,
+                        "Velocity (m/s)": round(abs(final_vel[i]), 3),
+                        "Status": status
+                    })
+
+                st.markdown("### Ringkasan")
+
+                c1, c2, c3 = st.columns(3)
+
+                c1.metric("Total Pipa", len(link_ids))
+                c2.metric("Diubah", changed)
+                c3.metric("Engine", "EPyT ✅")
+
+                df = pd.DataFrame(data)
+                st.dataframe(df, use_container_width=True)
+
+                # Save optimized inp
+                new_inp = tmp_path.replace(
+                    ".inp",
+                    "_optimized.inp"
+                )
+
+                d.saveInputFile(new_inp)
+
+                with open(new_inp, "rb") as file:
+                    st.download_button(
+                        "Unduh File Optimasi",
+                        data=file,
+                        file_name="Jaringan_Optimasi.inp",
+                        mime="text/plain"
+                    )
+
+            finally:
+                if d:
+                    d.unload()
+
+        # =====================================================
+        # FEATURE 2: PRESSURE + AUTO PRV
+        # =====================================================
         elif menu == "🩺 Analisis Tekanan & Auto-PRV (Engine: WNTR)":
-            st.write("Mendiagnosis kesehatan tekanan air dan mencari lokasi terbaik untuk **Pressure Reducing Valve (PRV)** secara otomatis.")
-            
-            # --- 🧹 AUTO-CLEANER ERROR 201 ---
-            with open(tmp_path, 'r', encoding='utf-8', errors='ignore') as f:
+
+            st.write(
+                "Analisis tekanan dan pencarian "
+                "lokasi terbaik 3 PRV."
+            )
+
+            # -----------------------------------------
+            # CLEAN FILE
+            # -----------------------------------------
+            with open(
+                tmp_path,
+                "r",
+                encoding="utf-8",
+                errors="ignore"
+            ) as f:
                 lines = f.readlines()
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                skip_mode = False
+
+            with open(
+                tmp_path,
+                "w",
+                encoding="utf-8"
+            ) as f:
+                skip = False
+
                 for line in lines:
-                    line_upper = line.strip().upper()
-                    if line_upper == '[LEAKAGE]':
-                        skip_mode = True
+                    u = line.strip().upper()
+
+                    if u == "[LEAKAGE]":
+                        skip = True
                         continue
-                    if skip_mode and line.startswith('['):
-                        skip_mode = False 
-                    if "BACKFLOW ALLOWED" in line_upper:
-                        continue 
-                    if not skip_mode:
+
+                    if skip and line.startswith("["):
+                        skip = False
+
+                    if "BACKFLOW ALLOWED" in u:
+                        continue
+
+                    if not skip:
                         f.write(line)
 
             wn = wntr.network.WaterNetworkModel(tmp_path)
+
             sim = wntr.sim.EpanetSimulator(wn)
             results = sim.run_sim()
-            tekanan_t0 = results.node['pressure'].loc[0]
-            
-            data_tabel = []
-            for node_name in wn.junction_name_list:
-                p = tekanan_t0[node_name]
-                status_p = "Aman"
-                if p < 15: status_p = "Terlalu Rendah"
-                elif p > 80: status_p = "Bahaya (Terlalu Tinggi)"
 
-                data_tabel.append({
-                    "ID Node": node_name,
-                    "Tekanan Awal (m)": round(p, 2),
-                    "Status": status_p
+            tekanan_awal = results.node["pressure"].loc[0]
+
+            # -----------------------------------------
+            # INITIAL PRESSURE TABLE
+            # -----------------------------------------
+            data = []
+
+            for node in wn.junction_name_list:
+                p = tekanan_awal[node]
+
+                if p < 15:
+                    status = "Terlalu Rendah"
+                elif p > 80:
+                    status = "Terlalu Tinggi"
+                else:
+                    status = "Aman"
+
+                data.append({
+                    "Node": node,
+                    "Tekanan": round(p, 2),
+                    "Status": status
                 })
 
-            st.markdown("### 1. Diagnosis Tekanan Awal")
-            df = pd.DataFrame(data_tabel)
-            def warnai_status(val):
-                if val == 'Aman': color = 'green'
-                elif val == 'Terlalu Rendah': color = 'orange'
-                else: color = 'red'
-                return f'color: {color}'
-            st.dataframe(df.style.map(warnai_status, subset=['Status']), use_container_width=True)
+            df = pd.DataFrame(data)
 
-            # --- ALGORITMA AUTO-PILOT PRV ---
+            st.markdown("### Diagnosis Tekanan")
+            st.dataframe(df, use_container_width=True)
+
+            # -----------------------------------------
+            # PRV SEARCH
+            # -----------------------------------------
             st.markdown("---")
-            st.markdown("### 2. 🤖 Auto-Pilot PRV (Pencari Pipa Terbaik)")
-            st.write("Sistem akan mencoba memasang PRV di SETIAP pipa satu per satu di latar belakang, lalu memilihkan lokasi PRV yang paling banyak menyelamatkan Node.")
-            
-            setting_prv_auto = st.number_input("Setting Target Tekanan PRV (m):", min_value=10.0, max_value=100.0, value=50.0)
 
-            if st.button("Jalankan Triple-Pilot PRV (God Mode) 🚀"):
-                with st.spinner('Mencari konfigurasi 3 katup terbaik... Mohon bersabar!'):
-                    best_pipes = None
-                    best_aman_count = -1
-                    best_tekanan = None
-                    best_wn = None
-                    
-                    all_pipes = wn.pipe_name_list
-                    # Pipa target utama yang dicurigai (agar looping lebih cepat)
-                    # p1, p3, p7, p13, p2 biasanya adalah kunci
-                    
-                    for i in range(len(all_pipes)):
-                        for j in range(i + 1, len(all_pipes)):
-                            for k in range(j + 1, len(all_pipes)):
-                                p1_n, p2_n, p3_n = all_pipes[i], all_pipes[j], all_pipes[k]
-                                
-                                try:
-                                    wn_test = wntr.network.WaterNetworkModel(tmp_path)
-                                    
-                                    # Pasang 3 PRV sekaligus
-                                    for p_target in [p1_n, p2_n, p3_n]:
-                                        p_obj = wn_test.get_link(p_target)
-                                        wn_test.remove_link(p_target)
-                                        wn_test.add_valve(f"PRV_{p_target}", p_obj.start_node_name, p_obj.end_node_name, 
-                                                        diameter=p_obj.diameter, valve_type='PRV', initial_setting=setting_prv_auto)
-                                    
-                                    sim_test = wntr.sim.EpanetSimulator(wn_test)
-                                    res_test = sim_test.run_sim()
-                                    tekanan_test = res_test.node['pressure'].loc[0]
-                                    
-                                    aman_count = sum(1 for n in wn_test.junction_name_list if 15 <= tekanan_test[n] <= 80)
-                                        
-                                    if aman_count > best_aman_count:
-                                        best_aman_count = aman_count
-                                        best_pipes = (p1_n, p2_n, p3_n)
-                                        best_tekanan = tekanan_test
-                                        best_wn = wn_test
-                                        
-                                    if aman_count >= len(wn_test.junction_name_list): break
-                                except: continue
-                            if best_aman_count >= len(wn.junction_name_list): break
-                        if best_aman_count >= len(wn.junction_name_list): break
+            setting_prv = st.number_input(
+                "Target tekanan PRV (m)",
+                min_value=10.0,
+                max_value=100.0,
+                value=50.0
+            )
 
-                    if best_pipes:
-                        st.success(f"✨ KONFIGURASI SEMPURNA! Pasang PRV di: **{best_pipes[0]}, {best_pipes[1]}, dan {best_pipes[2]}**")
-                        # ... sisa kode tabel perbandingan ...
-                    
-                   # --- TAMPILKAN HASIL TERBAIK (VERSI DOUBLE-PILOT) ---
-                    if best_pipes:
-                        st.success(f"✨ SOLUSI DITEMUKAN! Pasang dua PRV di Pipa: **{best_pipes[0]}** dan **{best_pipes[1]}**")
-                        st.info(f"Kombinasi ini berhasil membuat **{best_aman_count} Node** menjadi AMAN (Hijau).")
-                        
-                        # Tabel Hasil Perbandingan
-                        data_banding = []
-                        for node_name in wn.junction_name_list:
-                            p_lama = tekanan_t0[node_name]
-                            p_baru = best_tekanan[node_name]
-                            status_baru = "Aman" if 15 <= p_baru <= 80 else ("Terlalu Rendah" if p_baru < 15 else "Bahaya (Terlalu Tinggi)")
-                            
-                            data_banding.append({
-                                "ID Node": node_name,
-                                "Tekanan Lama (m)": round(p_lama, 2),
-                                "Tekanan Baru (m)": round(p_baru, 2),
-                                "Status Baru": status_baru
-                            })
-                        
-                        df_banding = pd.DataFrame(data_banding)
-                        def warnai_status(val):
-                            if val == 'Aman': return 'color: green'
-                            elif val == 'Terlalu Rendah': return 'color: orange'
-                            else: return 'color: red'
-                            
-                        st.dataframe(df_banding.style.map(warnai_status, subset=['Status Baru']), use_container_width=True)
+            if st.button("Cari Kombinasi Triple PRV 🚀"):
 
-                        # Unduh File Hasil Operasi Dua PRV
-                        st.markdown("#### Unduh Jaringan Sempurna")
-                        new_inp_prv = tmp_path.replace(".inp", "_DoublePRV.inp")
-                        wntr.network.write_inpfile(best_wn, new_inp_prv)
-                        with open(new_inp_prv, "rb") as file:
-                            st.download_button(label="Unduh File .INP (Sudah Ada 2 PRV)", data=file, file_name=f"Jaringan_Dua_PRV.inp", mime="text/plain")
-                    else:
-                        st.error("Gagal menemukan kombinasi PRV yang cocok.")
+                candidate_pipes = []
+
+                for p in wn.pipe_name_list:
+                    pipe = wn.get_link(p)
+
+                    if pipe.diameter > 0.15:
+                        candidate_pipes.append(p)
+
+                combos = list(
+                    combinations(candidate_pipes, 3)
+                )
+
+                total = len(combos)
+
+                progress = st.progress(0)
+
+                best_score = -1
+                best_combo = None
+                best_result = None
+                best_network = None
+
+                with st.spinner(
+                    "Mencari konfigurasi terbaik..."
+                ):
+
+                    for idx, combo in enumerate(combos):
+
+                        progress.progress(
+                            (idx + 1) / total
+                        )
+
+                        try:
+                            wn_test = wntr.network.WaterNetworkModel(
+                                tmp_path
+                            )
+
+                            for pipe_name in combo:
+                                pipe = wn_test.get_link(
+                                    pipe_name
+                                )
+
+                                wn_test.remove_link(
+                                    pipe_name
+                                )
+
+                                wn_test.add_valve(
+                                    f"PRV_{pipe_name}",
+                                    pipe.start_node_name,
+                                    pipe.end_node_name,
+                                    diameter=pipe.diameter,
+                                    valve_type="PRV",
+                                    initial_setting=setting_prv
+                                )
+
+                            sim_test = wntr.sim.EpanetSimulator(
+                                wn_test
+                            )
+
+                            res = sim_test.run_sim()
+
+                            tekanan = res.node[
+                                "pressure"
+                            ].loc[0]
+
+                            aman = sum(
+                                1
+                                for n in wn_test.junction_name_list
+                                if 15 <= tekanan[n] <= 80
+                            )
+
+                            if aman > best_score:
+                                best_score = aman
+                                best_combo = combo
+                                best_result = tekanan
+                                best_network = wn_test
+
+                            if aman == len(
+                                wn_test.junction_name_list
+                            ):
+                                break
+
+                        except Exception:
+                            continue
+
+                # -------------------------------------
+                # SHOW RESULT
+                # -------------------------------------
+                if best_combo:
+
+                    st.success(
+                        f"Pasang PRV di: "
+                        f"{best_combo[0]}, "
+                        f"{best_combo[1]}, "
+                        f"{best_combo[2]}"
+                    )
+
+                    st.info(
+                        f"Node aman: "
+                        f"{best_score} "
+                        f"dari "
+                        f"{len(wn.junction_name_list)}"
+                    )
+
+                    compare = []
+
+                    for node in wn.junction_name_list:
+                        old_p = tekanan_awal[node]
+                        new_p = best_result[node]
+
+                        if new_p < 15:
+                            status = "Terlalu Rendah"
+                        elif new_p > 80:
+                            status = "Terlalu Tinggi"
+                        else:
+                            status = "Aman"
+
+                        compare.append({
+                            "Node": node,
+                            "Tekanan Lama": round(
+                                old_p, 2
+                            ),
+                            "Tekanan Baru": round(
+                                new_p, 2
+                            ),
+                            "Status": status
+                        })
+
+                    df2 = pd.DataFrame(compare)
+
+                    st.dataframe(
+                        df2,
+                        use_container_width=True
+                    )
+
+                    # save new network
+                    new_inp = tmp_path.replace(
+                        ".inp",
+                        "_TriplePRV.inp"
+                    )
+
+                    wntr.network.write_inpfile(
+                        best_network,
+                        new_inp
+                    )
+
+                    with open(
+                        new_inp,
+                        "rb"
+                    ) as file:
+                        st.download_button(
+                            "Unduh File Triple PRV",
+                            data=file,
+                            file_name="Jaringan_Triple_PRV.inp",
+                            mime="text/plain"
+                        )
+
+                else:
+                    st.error(
+                        "Tidak ditemukan kombinasi cocok."
+                    )
 
     except Exception as e:
-        st.error(f"Gagal menjalankan analisis: {e}")
-        st.info("Pastikan file .inp Anda valid.")
-        
+        st.error(
+            f"Gagal menjalankan analisis: {e}"
+        )
+
     finally:
-        if os.path.exists(tmp_path): os.remove(tmp_path)
-        if 'new_inp_path' in locals() and os.path.exists(new_inp_path): os.remove(new_inp_path)
-        if 'new_inp_prv' in locals() and os.path.exists(new_inp_prv): os.remove(new_inp_prv)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
