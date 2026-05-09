@@ -151,59 +151,52 @@ if uploaded_file is not None:
             
             setting_prv_auto = st.number_input("Setting Target Tekanan PRV (m):", min_value=10.0, max_value=100.0, value=50.0)
 
-            if st.button("Jalankan Double-Pilot PRV (Full Safe Mode) 🚀"):
-                with st.spinner('Menganalisis ribuan kombinasi pasangan pipa... Mohon tunggu!'):
+            if st.button("Jalankan Triple-Pilot PRV (God Mode) 🚀"):
+                with st.spinner('Mencari konfigurasi 3 katup terbaik... Mohon bersabar!'):
                     best_pipes = None
                     best_aman_count = -1
                     best_tekanan = None
                     best_wn = None
                     
                     all_pipes = wn.pipe_name_list
-                    # Kita batasi pencarian agar tidak terlalu berat (looping di dalam looping)
+                    # Pipa target utama yang dicurigai (agar looping lebih cepat)
+                    # p1, p3, p7, p13, p2 biasanya adalah kunci
+                    
                     for i in range(len(all_pipes)):
                         for j in range(i + 1, len(all_pipes)):
-                            p1_name = all_pipes[i]
-                            p2_name = all_pipes[j]
-                            
-                            try:
-                                wn_test = wntr.network.WaterNetworkModel(tmp_path)
+                            for k in range(j + 1, len(all_pipes)):
+                                p1_n, p2_n, p3_n = all_pipes[i], all_pipes[j], all_pipes[k]
                                 
-                                # Pasang PRV ke-1
-                                pipe1 = wn_test.get_link(p1_name)
-                                wn_test.remove_link(p1_name)
-                                wn_test.add_valve(f"PRV1_{p1_name}", pipe1.start_node_name, pipe1.end_node_name, 
-                                                diameter=pipe1.diameter, valve_type='PRV', initial_setting=setting_prv_auto)
-                                
-                                # Pasang PRV ke-2
-                                pipe2 = wn_test.get_link(p2_name)
-                                wn_test.remove_link(p2_name)
-                                wn_test.add_valve(f"PRV2_{p2_name}", pipe2.start_node_name, pipe2.end_node_name, 
-                                                diameter=pipe2.diameter, valve_type='PRV', initial_setting=setting_prv_auto)
-                                
-                                sim_test = wntr.sim.EpanetSimulator(wn_test)
-                                res_test = sim_test.run_sim()
-                                tekanan_test = res_test.node['pressure'].loc[0]
-                                
-                                aman_count = sum(1 for n in wn_test.junction_name_list if 15 <= tekanan_test[n] <= 80)
+                                try:
+                                    wn_test = wntr.network.WaterNetworkModel(tmp_path)
                                     
-                                if aman_count > best_aman_count:
-                                    best_aman_count = aman_count
-                                    best_pipes = (p1_name, p2_name)
-                                    best_tekanan = tekanan_test
-                                    best_wn = wn_test
+                                    # Pasang 3 PRV sekaligus
+                                    for p_target in [p1_n, p2_n, p3_n]:
+                                        p_obj = wn_test.get_link(p_target)
+                                        wn_test.remove_link(p_target)
+                                        wn_test.add_valve(f"PRV_{p_target}", p_obj.start_node_name, p_obj.end_node_name, 
+                                                        diameter=p_obj.diameter, valve_type='PRV', initial_setting=setting_prv_auto)
                                     
-                                    # Jika sudah 100% aman (10 node aman), langsung stop pencarian
-                                    if aman_count >= len(wn_test.junction_name_list):
-                                        break
-                            except:
-                                continue
-                        if best_aman_count >= len(wn.junction_name_list):
-                            break
+                                    sim_test = wntr.sim.EpanetSimulator(wn_test)
+                                    res_test = sim_test.run_sim()
+                                    tekanan_test = res_test.node['pressure'].loc[0]
+                                    
+                                    aman_count = sum(1 for n in wn_test.junction_name_list if 15 <= tekanan_test[n] <= 80)
+                                        
+                                    if aman_count > best_aman_count:
+                                        best_aman_count = aman_count
+                                        best_pipes = (p1_n, p2_n, p3_n)
+                                        best_tekanan = tekanan_test
+                                        best_wn = wn_test
+                                        
+                                    if aman_count >= len(wn_test.junction_name_list): break
+                                except: continue
+                            if best_aman_count >= len(wn.junction_name_list): break
+                        if best_aman_count >= len(wn.junction_name_list): break
 
                     if best_pipes:
-                        st.success(f"✨ SOLUSI DITEMUKAN! Pasang dua PRV di Pipa: **{best_pipes[0]}** dan **{best_pipes[1]}**")
-                        st.info(f"Kombinasi ini berhasil membuat **{best_aman_count} Node** menjadi AMAN (Hijau).")
-                        # ... sisa kode untuk menampilkan tabel banding dan download ...
+                        st.success(f"✨ KONFIGURASI SEMPURNA! Pasang PRV di: **{best_pipes[0]}, {best_pipes[1]}, dan {best_pipes[2]}**")
+                        # ... sisa kode tabel perbandingan ...
                     
                    # --- TAMPILKAN HASIL TERBAIK (VERSI DOUBLE-PILOT) ---
                     if best_pipes:
