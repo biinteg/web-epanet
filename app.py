@@ -6,20 +6,30 @@ import os
 import pandas as pd
 from itertools import combinations
 
+# =====================================================
+# FUNGSI WARNA
+# =====================================================
 
-# =====================================================
-# FUNGSI WARNA STATUS
-# =====================================================
-def warnai_status(val):
+def warnai_status_tekanan(val):
     if val == "Aman":
         return "color: limegreen; font-weight: bold;"
     else:
         return "color: red; font-weight: bold;"
 
 
+def warnai_status_solver(val):
+    if val == "Diperbesar":
+        return "color: limegreen; font-weight: bold;"
+    elif val == "Diperkecil":
+        return "color: orange; font-weight: bold;"
+    else:
+        return "color: cyan; font-weight: bold;"
+
+
 # =====================================================
 # PAGE CONFIG
 # =====================================================
+
 st.set_page_config(
     page_title="EPANET Pro Toolkit",
     layout="wide"
@@ -47,8 +57,9 @@ uploaded_file = st.file_uploader(
 )
 
 # =====================================================
-# JIKA FILE DIUPLOAD
+# MAIN
 # =====================================================
+
 if uploaded_file is not None:
 
     with tempfile.NamedTemporaryFile(
@@ -61,7 +72,7 @@ if uploaded_file is not None:
     try:
 
         # =================================================
-        # FEATURE 1: AUTO SOLVER EPYT
+        # FEATURE 1 : AUTO SOLVER
         # =================================================
         if menu == "🚀 Auto-Solver (Engine: EPyT)":
 
@@ -84,7 +95,7 @@ if uploaded_file is not None:
                     400, 500, 600, 800
                 ]
 
-                # iterasi optimasi
+                # Iterasi optimasi
                 for _ in range(5):
 
                     d.openHydraulicAnalysis()
@@ -96,6 +107,7 @@ if uploaded_file is not None:
                     d.closeHydraulicAnalysis()
 
                     for i in range(len(link_ids)):
+
                         v = abs(velocity[i])
                         d_now = d.getLinkDiameter(i + 1)
 
@@ -122,17 +134,20 @@ if uploaded_file is not None:
                             d_new
                         )
 
-                # run final
+                # Run final
                 d.openHydraulicAnalysis()
                 d.initializeHydraulicAnalysis(0)
                 d.runHydraulicAnalysis()
+
                 final_velocity = d.getLinkVelocity()
+
                 d.closeHydraulicAnalysis()
 
                 hasil = []
                 berubah = 0
 
                 for i in range(len(link_ids)):
+
                     awal = diameter_awal[i]
                     akhir = d.getLinkDiameter(i + 1)
 
@@ -160,6 +175,7 @@ if uploaded_file is not None:
                 df = pd.DataFrame(hasil)
 
                 st.markdown("### Ringkasan")
+
                 c1, c2, c3 = st.columns(3)
 
                 c1.metric(
@@ -177,23 +193,15 @@ if uploaded_file is not None:
                     "EPyT ✅"
                 )
 
-                def warnai_status_solver(val):
-                    if val == "Diperkecil":
-                        return "color: orange; font-weight: bold;"
-                    elif val == "Diperbesar":
-                        return "color: limegreen; font-weight: bold;"
-                    else:
-                        return "color: cyan; font-weight: bold;"
+                st.dataframe(
+                    df.style.map(
+                        warnai_status_solver,
+                        subset=["Status"]
+                    ),
+                    use_container_width=True
+                )
 
-st.dataframe(
-    df.style.map(
-        warnai_status_solver,
-        subset=["Status"]
-    ),
-    use_container_width=True
-)
-
-                # download file
+                # Download hasil
                 new_inp = tmp_path.replace(
                     ".inp",
                     "_optimized.inp"
@@ -214,7 +222,7 @@ st.dataframe(
                     d.unload()
 
         # =================================================
-        # FEATURE 2: WNTR PRV
+        # FEATURE 2 : ANALISIS TEKANAN + PRV
         # =================================================
         elif menu == "🩺 Analisis Tekanan & Auto-PRV (Engine: WNTR)":
 
@@ -223,9 +231,9 @@ st.dataframe(
                 "kombinasi terbaik Triple PRV."
             )
 
-            # -----------------------------------------
+            # -------------------------------------
             # CLEAN FILE
-            # -----------------------------------------
+            # -------------------------------------
             with open(
                 tmp_path,
                 "r",
@@ -271,12 +279,13 @@ st.dataframe(
                 "pressure"
             ].loc[0]
 
-            # -----------------------------------------
+            # -------------------------------------
             # DIAGNOSIS AWAL
-            # -----------------------------------------
+            # -------------------------------------
             data_awal = []
 
             for node in wn.junction_name_list:
+
                 p = tekanan_awal[node]
 
                 if p < 15:
@@ -302,15 +311,15 @@ st.dataframe(
 
             st.dataframe(
                 df_awal.style.map(
-                    warnai_status,
+                    warnai_status_tekanan,
                     subset=["Status"]
                 ),
                 use_container_width=True
             )
 
-            # -----------------------------------------
-            # PRV SEARCH
-            # -----------------------------------------
+            # -------------------------------------
+            # SEARCH PRV
+            # -------------------------------------
             st.markdown("---")
 
             setting_prv = st.number_input(
@@ -364,6 +373,7 @@ st.dataframe(
                             )
 
                             for pipe_name in combo:
+
                                 pipe = wn_test.get_link(
                                     pipe_name
                                 )
@@ -391,7 +401,7 @@ st.dataframe(
                                 "pressure"
                             ].loc[0]
 
-                            # skip tekanan absurd
+                            # Skip hasil absurd
                             if any(
                                 tekanan[n] < -100
                                 for n in wn_test.junction_name_list
@@ -410,7 +420,7 @@ st.dataframe(
                                 best_result = tekanan
                                 best_network = wn_test
 
-                        except Exception:
+                        except:
                             continue
 
                 # -------------------------------------
@@ -434,10 +444,11 @@ st.dataframe(
                     compare = []
 
                     for node in wn.junction_name_list:
+
                         old_p = tekanan_awal[node]
                         new_p = best_result[node]
 
-                        # pengaman tampilan
+                        # pengaman minus absurd
                         p_tampil = (
                             new_p
                             if new_p > -100
@@ -468,13 +479,13 @@ st.dataframe(
 
                     st.dataframe(
                         df2.style.map(
-                            warnai_status,
+                            warnai_status_tekanan,
                             subset=["Status"]
                         ),
                         use_container_width=True
                     )
 
-                    # save file
+                    # Download file
                     new_inp = tmp_path.replace(
                         ".inp",
                         "_TriplePRV.inp"
@@ -498,8 +509,7 @@ st.dataframe(
 
                 else:
                     st.error(
-                        "Tidak ditemukan "
-                        "kombinasi PRV yang valid."
+                        "Tidak ditemukan kombinasi PRV yang valid."
                     )
 
     except Exception as e:
